@@ -4,6 +4,7 @@
 #include <py/gc.h>
 #include <py/runtime.h>
 #include <string.h>
+#include "mpy_binding_blst.h"
 
 
 #undef alloca

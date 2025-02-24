@@ -14,8 +14,6 @@
 #include <string.h>
 #include <errno.h>
 
-
-#include "blst/bindings/blst.h"
 #include "mod_blst.h"
 
 

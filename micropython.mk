@@ -11,7 +11,8 @@ CLFAGS_USERMOD += -I$(BLST_SRC_DIR) -I$(BLST_MOD_DIR)/blst/bindings -D__BLST_POR
 
 # CFLAGS_EXTMOD += -Wno-unused-function
 #-Wno-undefined-internal
-CFLAGS_EXTRA += -Wno-unused-function  -Wno-typedef-redefinition
+CFLAGS_EXTRA += -Wno-unused-function  
+# -Wno-typedef-redefinition
 # CFLAGS_EXTRA += -Wno-undefined-internal -Wno-implicit-function-declaration
 
 SRC_USERMOD_LIB_C += $(addprefix $(BLST_SRC_DIR)/, \
