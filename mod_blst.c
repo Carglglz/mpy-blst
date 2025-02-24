@@ -17,8 +17,6 @@
 
 #include "blst/bindings/blst.h"
 #include "mod_blst.h"
-/* #include "blst/src/bytes.h" */
-/* #include "blst/src/vect.h" */
 
 
 void *mp_alloca(size_t size)
@@ -64,12 +62,6 @@ static mp_obj_t write_file(mp_obj_t self_in, mp_obj_t data_in) {
     return n_bytes;
 }
 
-/* void blst_keygen(pow256 SK, const void *IKM, size_t IKM_len, */
-/*                             const void *info, size_t info_len) */
-
-
-/* void blst_keygen(blst_scalar *out_SK, const bl_byte *IKM, size_t IKM_len, */
-/*                  const bl_byte *info DEFNULL, size_t info_len DEFNULL); */
 
 /* https://datatracker.ietf.org/doc/html/draft-irtf-cfrg-bls-signature#section-2.3 */
 /* The KeyGen procedure described in this section generates a secret key SK deterministically from a secret octet string IKM. SK is guaranteed to be nonzero, as required by KeyValidate (Section 2.5).¶ */
@@ -93,10 +85,9 @@ static mp_obj_t mod_blst_keygen(size_t n_args, const mp_obj_t *pos_args, mp_map_
 
     mp_check_self(mp_obj_is_str_or_bytes(args[0].u_obj));
 
-
     // check if IKM is a string/path
     mp_obj_t IKM_data;
-    blst_scalar *pkey = NULL; 
+    blst_scalar pkey; 
 
     if (!(mp_obj_is_type(args[0].u_obj, &mp_type_bytes))) {
         IKM_data = read_file(args[0].u_obj);
@@ -104,16 +95,20 @@ static mp_obj_t mod_blst_keygen(size_t n_args, const mp_obj_t *pos_args, mp_map_
         IKM_data = args[0].u_obj;
     }
 
-
-    /* return IKM_data; */
     //Parse secret seed
+    size_t IKM_min_size = 32;
     size_t IKM_len;
-    const byte *IKM_seed = (const byte *)mp_obj_str_get_data(IKM_data, &IKM_len);
+    const blst_byte *IKM_seed = (const blst_byte*)mp_obj_str_get_data(IKM_data, &IKM_len);
+    if (strlen((const char*)IKM_seed) < IKM_min_size){
 
-    blst_keygen(pkey, IKM_seed, IKM_len, NULL, 0);
-    /* /1* /2* unsigned char output_buf[key_len]; *2/ *1/ */
+        mp_raise_msg(&mp_type_ValueError, MP_ERROR_TEXT("Seed too small (at least 32 bytes)"));
 
-    return mp_const_none;
+    }
+
+
+    blst_keygen(&pkey, IKM_seed, IKM_len, NULL, 0);
+
+    return mp_obj_new_bytes(pkey.b, 32);
     
 
 }
@@ -121,31 +116,103 @@ static mp_obj_t mod_blst_keygen(size_t n_args, const mp_obj_t *pos_args, mp_map_
 static MP_DEFINE_CONST_FUN_OBJ_KW(mod_blst_keygen_obj, 1, mod_blst_keygen);
 
 
-/* static mp_obj_t mod_blst_sign(mp_obj_t msg_obj, mp_obj_t key_obj) { */ 
-/*     // Extract message and key as bytes from Python objects */ 
-/*     mp_buffer_info_t msg_buf; */ 
-/*     mp_buffer_info_t key_buf; */ 
-/*     mp_get_buffer_raise(msg_obj, &msg_buf, MP_BUFFER_READ); */ 
-/*     mp_get_buffer_raise(key_obj, &key_buf, MP_BUFFER_READ); */ 
-/*     // Check key length (assuming 32 bytes for BLS12-381 secret key) */ 
-/*     if (key_buf.len != 32) { mp_raise_msg(&mp_type_ValueError, MP_ERROR_TEXT("Secret key must be 32 bytes")); } */ 
-/*     // Prepare blst variables */ 
-/*     blst_scalar sk; */ 
-/*     blst_p1 sig; */ 
-/*     byte sig_bytes[96]; // BLS12-381 signature is 96 bytes in G1 */ 
-/*     // Convert key bytes to blst_scalar */ 
-/*     blst_scalar_from_be_bytes(&sk, key_buf.buf, key_buf.len); */
-/*     // Hash message to point and sign */ 
-/*     blst_p1_hash_to(&sig, msg_buf.buf, msg_buf.len, NULL, 0, NULL, 0); */
 
-/*     blst_sign_pk_in_g2(&sig, &sig, &sk); */ 
-/*     // Serialize signature to bytes */ 
-/*     blst_p1_compress(sig_bytes, &sig); */ 
-/*     // Return signature as bytes */ 
-/*     return mp_obj_new_bytes(sig_bytes, sizeof(sig_bytes)); } */ 
-/* // Define the function object */ 
-/* static MP_DEFINE_CONST_FUN_OBJ_2(mod_blst_sign_obj, mod_blst_sign); */
+static mp_obj_t mod_blst_pubk(mp_obj_t sk_obj) { 
 
+    mp_check_self(mp_obj_is_str_or_bytes(sk_obj));
+    mp_buffer_info_t sk_buf; 
+    mp_get_buffer_raise(sk_obj, &sk_buf, MP_BUFFER_READ); 
+     // Validate secret key length (must be 32 bytes) 
+    if (sk_buf.len != 32) { 
+
+        mp_raise_msg(&mp_type_ValueError, MP_ERROR_TEXT("Secret key must be 32 bytes"));
+    }
+    // Deserialize secret key from bytes 
+    blst_scalar sk; 
+    memcpy(sk.b, sk_buf.buf, 32); 
+    // Derive public key 
+    blst_p1 pk; 
+    blst_sk_to_pk_in_g1(&pk, &sk); // min-pubkey-size-type
+    // Serialize to compressed form (48 bytes) 
+    blst_byte pk_serialized[48]; 
+    blst_p1_compress(pk_serialized, &pk); 
+    return mp_obj_new_bytes(pk_serialized, 48); }
+
+
+static MP_DEFINE_CONST_FUN_OBJ_1(mod_blst_pubk_obj, mod_blst_pubk); 
+
+static mp_obj_t mod_blst_sign(mp_obj_t sk_obj, mp_obj_t msg_obj) { 
+
+    mp_check_self(mp_obj_is_str_or_bytes(sk_obj));
+    mp_check_self(mp_obj_is_str_or_bytes(msg_obj));
+    // Extract secret key 
+    mp_buffer_info_t sk_buf; 
+    mp_get_buffer_raise(sk_obj, &sk_buf, MP_BUFFER_READ);
+
+    if (sk_buf.len != 32) { 
+
+        mp_raise_msg(&mp_type_ValueError, MP_ERROR_TEXT("Secret key must be 32 bytes"));
+    }
+
+    blst_scalar sk; 
+    memcpy(sk.b, sk_buf.buf, 32); 
+    // Extract message 
+    mp_buffer_info_t msg_buf; 
+    mp_get_buffer_raise(msg_obj, &msg_buf, MP_BUFFER_READ); 
+
+    // Default DST 
+    const blst_byte *dst = (const byte *)"BLS_SIG_BLS12381G1_XMD:SHA-256_SSWU_RO_NUL_"; 
+    size_t dst_len = strlen((char *)dst); 
+
+    blst_p2 msg_hash; 
+    blst_hash_to_g2(&msg_hash, (const blst_byte*)msg_buf.buf, msg_buf.len, dst, dst_len, NULL, 0); 
+    // Sign 
+    blst_p2 sig; 
+    blst_sign_pk_in_g1(&sig, &msg_hash, &sk); 
+    // Serialize signature 
+    blst_byte sig_serialized[96]; 
+    blst_p2_compress(sig_serialized, &sig); 
+    return mp_obj_new_bytes(sig_serialized, 96); }
+static MP_DEFINE_CONST_FUN_OBJ_2(mod_blst_sign_obj, mod_blst_sign);
+
+static mp_obj_t mod_blst_verify(mp_obj_t pk_obj, mp_obj_t sig_obj, mp_obj_t msg_obj) { 
+
+    mp_check_self(mp_obj_is_str_or_bytes(pk_obj));
+    mp_check_self(mp_obj_is_str_or_bytes(msg_obj));
+    mp_check_self(mp_obj_is_str_or_bytes(sig_obj));
+    // Extract public key (48 bytes) 
+    mp_buffer_info_t pk_buf; 
+    mp_get_buffer_raise(pk_obj, &pk_buf, MP_BUFFER_READ); 
+
+    if (pk_buf.len != 48) { 
+
+        mp_raise_msg(&mp_type_ValueError, MP_ERROR_TEXT("Public key must be 48 bytes"));
+    }
+    // Extract signature (48 bytes) 
+    mp_buffer_info_t sig_buf; 
+    mp_get_buffer_raise(sig_obj, &sig_buf, MP_BUFFER_READ); 
+
+    if (sig_buf.len != 96) { 
+
+        mp_raise_msg(&mp_type_ValueError, MP_ERROR_TEXT("Signature must be 96 bytes"));
+    }
+
+    // Extract message 
+    mp_buffer_info_t msg_buf; 
+    mp_get_buffer_raise(msg_obj, &msg_buf, MP_BUFFER_READ); 
+    // Default DST 
+    const blst_byte *dst = (const byte *)"BLS_SIG_BLS12381G1_XMD:SHA-256_SSWU_RO_NUL_"; 
+    size_t dst_len = strlen((char *)dst); 
+    // Deserialize public key and signature 
+    blst_p1_affine pk_affine; 
+    blst_p2_affine sig_affine; 
+    blst_p1_uncompress(&pk_affine, pk_buf.buf); 
+    blst_p2_uncompress(&sig_affine, sig_buf.buf); 
+    BLST_ERROR res = blst_core_verify_pk_in_g1(&pk_affine, &sig_affine, true, msg_buf.buf, msg_buf.len, dst, dst_len, NULL, 0);
+    bool valid =  (res == BLST_SUCCESS);
+    return mp_obj_new_bool(valid); } 
+
+static MP_DEFINE_CONST_FUN_OBJ_3(mod_blst_verify_obj, mod_blst_verify);
 
 // Define all attributes of the module.
 // Table entries are key/value pairs of the attribute name (a string)
@@ -155,7 +222,9 @@ static MP_DEFINE_CONST_FUN_OBJ_KW(mod_blst_keygen_obj, 1, mod_blst_keygen);
 static const mp_rom_map_elem_t mp_module_blst_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR___name__), MP_ROM_QSTR(MP_QSTR_blst) },
     { MP_ROM_QSTR(MP_QSTR_keygen), MP_ROM_PTR(&mod_blst_keygen_obj) },
-    /* { MP_ROM_QSTR(MP_QSTR_sign), MP_ROM_PTR(&mod_blst_sign_obj) }, */
+    { MP_ROM_QSTR(MP_QSTR_pubkey), MP_ROM_PTR(&mod_blst_pubk_obj) },
+    { MP_ROM_QSTR(MP_QSTR_sign), MP_ROM_PTR(&mod_blst_sign_obj) },
+    { MP_ROM_QSTR(MP_QSTR_verify), MP_ROM_PTR(&mod_blst_verify_obj) },
 };
 static MP_DEFINE_CONST_DICT(mp_module_blst_globals, mp_module_blst_globals_table);
 
@@ -167,7 +236,3 @@ const mp_obj_module_t mp_module_blst = {
 
 // Register the module to make it available in Python.
 MP_REGISTER_MODULE(MP_QSTR_blst, mp_module_blst);
-
-
-// Module globals table STATIC const mp_rom_map_elem_t ublst_module_globals_table[] = { { MP_ROM_QSTR(MP_QSTR___name__), MP_ROM_QSTR(MP_QSTR_ublst) }, { MP_ROM_QSTR(MP_QSTR_sign), MP_ROM_PTR(&ublst_sign_obj) }, }; STATIC MP_DEFINE_CONST_DICT(ublst_module_globals, ublst_module_globals_table); // Module definition const mp_obj_module_t ublst_user_cmodule = { .base = { &mp_type_module }, .globals = (mp_obj_dict_t*)&ublst_module_globals, }; // Register the module MP_REGISTER_MODULE(MP_QSTR_ublst, ublst_user_cmodule);
-//
