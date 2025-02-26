@@ -35,3 +35,45 @@ not_valid = blst.verify(pk, sig, msg_bad)
 print(f"TEST MESSAGE (NOT VALID): {msg_bad}")
 print(f"VERIFIED SIGNATURE [FAILS]: {not not_valid}")
 assert not_valid is not True
+
+# -- Aggregation ---
+
+# Signature A
+msgA = b"hello"
+sigA = blst.sign(tsk, msgA)
+print(f"TEST MESSAGE A: {msgA}")
+print(f"SIGNATURE A: {sigA.hex()}")
+
+
+# Signature B
+msgB = b"world"
+sigB = blst.sign(tsk, msgB)
+print(f"TEST MESSAGE B: {msgB}")
+print(f"SIGNATURE B: {sigB.hex()}")
+
+vs = blst.verify(pk, sigA, msgA) and blst.verify(pk, sigB, msgB)
+res = "OK" if vs else "FAIL"
+print(f"VERIFIED SIGNATURES (A,B) [{res}]")
+
+assert vs is True
+
+agg_sig = blst.aggregate([sigA, sigB])
+print(f"AGGREGATED SIGNATURE: {agg_sig.hex()}")
+pks = [pk, pk]
+msgs = [msgA, msgB]
+
+# Aggregate Verification
+print(f"AGGREGATED SIGNATURE VERIFIED: {blst.aggregate_verify(pks, msgs, agg_sig)}")
+
+# Master Key (EIP2333)
+mk = blst.keygen_dm_eip2333(seed)
+
+assert len(mk) == 32
+print(f"TEST MASTER SECRET KEY: {mk.hex()}")
+
+
+# Child Key (EIP2333) # INDEX 42
+ck = blst.keygen_dc_eip2333(mk, 42)
+
+assert len(ck) == 32
+print(f"TEST CHILD SECRET KEY: {ck.hex()}")
