@@ -87,13 +87,46 @@ static void blst_p2_from_bytes(blst_p2 *out, const blst_byte in[SIGNATURE_SIZE])
     blst_p2_from_affine(out, &p2aff);
 }
 
+static const blst_byte *get_scheme(int sch){
+
+    // BASIC_SCH 0
+    // AUG_SCH 1
+    // POP_SCH 2
+    // POP_SIG_SCH 3
+    const blst_byte *scheme;
+
+    switch (sch) {
+        case BASIC_SCH:
+            scheme = (const blst_byte *)BASIC_SCHEME_MPL; 
+            break;
+
+        case AUG_SCH:
+            scheme = (const blst_byte *)AUG_SCHEME_MPL; 
+            break;
+        case POP_SCH:
+            scheme = (const blst_byte *)POP_SCHEME_MPL; 
+            break;
+        case POP_SIG_SCH:
+            scheme = (const blst_byte *)POPSIG_SCHEME_MPL; 
+            break;
+
+        default:
+
+            scheme = (const blst_byte *)AUG_SCHEME_MPL; 
+            break;
+            
+            
+    }
+    return scheme;
+}
+
 
 // Aggregate verification (multiple PKs, messages, and one aggregated signature)
-static int bls_aggregate_verify(const uint8_t** pks_in, const uint8_t** msgs, const size_t* msg_lens, size_t num_msgs, const blst_byte agg_sig_in[SIGNATURE_SIZE]) {
+static int bls_aggregate_verify(const uint8_t** pks_in, const uint8_t** msgs, const size_t* msg_lens, size_t num_msgs, const blst_byte agg_sig_in[SIGNATURE_SIZE], int DST) {
     if (num_msgs == 0) return 1;
 
 
-    const blst_byte *dst = (const byte *)AUG_SCHEME_MPL; 
+    const blst_byte *dst = get_scheme(DST); 
     size_t dst_len = strlen((char *)dst); 
    // Initialize pairing context
     blst_pairing* pairing = mp_alloca(blst_pairing_sizeof());
@@ -260,7 +293,19 @@ static mp_obj_t mod_blst_pubk(mp_obj_t sk_obj) {
 
 static MP_DEFINE_CONST_FUN_OBJ_1(mod_blst_pubk_obj, mod_blst_pubk); 
 
-static mp_obj_t mod_blst_sign(mp_obj_t sk_obj, mp_obj_t msg_obj) { 
+static mp_obj_t mod_blst_sign(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args) { 
+
+	static const mp_arg_t allowed_args[] = {
+        { MP_QSTR_sk, MP_ARG_REQUIRED | MP_ARG_OBJ, {.u_rom_obj =  mp_const_none} },
+        { MP_QSTR_msg, MP_ARG_REQUIRED | MP_ARG_OBJ, {.u_rom_obj = mp_const_none} },
+        { MP_QSTR_scheme, MP_ARG_INT | MP_ARG_INT, {.u_int = AUG_SCH} },
+    };
+
+    mp_arg_val_t args[MP_ARRAY_SIZE(allowed_args)];
+    mp_arg_parse_all(n_args, pos_args, kw_args, MP_ARRAY_SIZE(allowed_args), allowed_args, args);
+
+    mp_obj_t sk_obj = args[0].u_obj;
+    mp_obj_t msg_obj = args[1].u_obj;
 
     mp_check_self(mp_obj_is_str_or_bytes(sk_obj));
     mp_check_self(mp_obj_is_str_or_bytes(msg_obj));
@@ -280,7 +325,8 @@ static mp_obj_t mod_blst_sign(mp_obj_t sk_obj, mp_obj_t msg_obj) {
     mp_get_buffer_raise(msg_obj, &msg_buf, MP_BUFFER_READ); 
 
     // Default DST 
-    const blst_byte *dst = (const byte *)AUG_SCHEME_MPL; 
+    const blst_byte *dst = get_scheme(args[2].u_int);
+    /* const blst_byte *dst = (const byte *)AUG_SCHEME_MPL; */ 
     size_t dst_len = strlen((char *)dst); 
 
     blst_p2 msg_hash; 
@@ -292,10 +338,24 @@ static mp_obj_t mod_blst_sign(mp_obj_t sk_obj, mp_obj_t msg_obj) {
     blst_byte sig_serialized[SIGNATURE_SIZE]; 
     blst_p2_compress(sig_serialized, &sig); 
     return mp_obj_new_bytes(sig_serialized, SIGNATURE_SIZE); }
-static MP_DEFINE_CONST_FUN_OBJ_2(mod_blst_sign_obj, mod_blst_sign);
+static MP_DEFINE_CONST_FUN_OBJ_KW(mod_blst_sign_obj, 2, mod_blst_sign);
 
-static mp_obj_t mod_blst_verify(mp_obj_t pk_obj, mp_obj_t sig_obj, mp_obj_t msg_obj) { 
+static mp_obj_t mod_blst_verify(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args) { 
 
+
+	static const mp_arg_t allowed_args[] = {
+        { MP_QSTR_pk, MP_ARG_REQUIRED | MP_ARG_OBJ, {.u_rom_obj =  mp_const_none} },
+        { MP_QSTR_sig, MP_ARG_REQUIRED | MP_ARG_OBJ, {.u_rom_obj = mp_const_none} },
+        { MP_QSTR_msg, MP_ARG_REQUIRED | MP_ARG_OBJ, {.u_rom_obj = mp_const_none} },
+        { MP_QSTR_scheme, MP_ARG_INT | MP_ARG_INT, {.u_int = AUG_SCH} },
+    };
+
+    mp_arg_val_t args[MP_ARRAY_SIZE(allowed_args)];
+    mp_arg_parse_all(n_args, pos_args, kw_args, MP_ARRAY_SIZE(allowed_args), allowed_args, args);
+
+    mp_obj_t pk_obj = args[0].u_obj;
+    mp_obj_t sig_obj = args[1].u_obj;
+    mp_obj_t msg_obj = args[2].u_obj;
     mp_check_self(mp_obj_is_str_or_bytes(pk_obj));
     mp_check_self(mp_obj_is_str_or_bytes(msg_obj));
     mp_check_self(mp_obj_is_str_or_bytes(sig_obj));
@@ -320,7 +380,7 @@ static mp_obj_t mod_blst_verify(mp_obj_t pk_obj, mp_obj_t sig_obj, mp_obj_t msg_
     mp_buffer_info_t msg_buf; 
     mp_get_buffer_raise(msg_obj, &msg_buf, MP_BUFFER_READ); 
     // Default DST 
-    const blst_byte *dst = (const byte *)AUG_SCHEME_MPL; 
+    const blst_byte *dst = get_scheme(args[3].u_int); 
     size_t dst_len = strlen((char *)dst); 
     // Deserialize public key and signature 
     blst_p1_affine pk_affine; 
@@ -331,7 +391,7 @@ static mp_obj_t mod_blst_verify(mp_obj_t pk_obj, mp_obj_t sig_obj, mp_obj_t msg_
     bool valid =  (res == BLST_SUCCESS);
     return mp_obj_new_bool(valid); } 
 
-static MP_DEFINE_CONST_FUN_OBJ_3(mod_blst_verify_obj, mod_blst_verify);
+static MP_DEFINE_CONST_FUN_OBJ_KW(mod_blst_verify_obj, 3, mod_blst_verify);
 
 // Function: bls.aggregate(sigs)
 static mp_obj_t mod_blst_aggregate(mp_obj_t sigs_obj) {
@@ -376,7 +436,22 @@ static mp_obj_t mod_blst_aggregate(mp_obj_t sigs_obj) {
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(mod_blst_aggregate_obj, mod_blst_aggregate);
 
-static mp_obj_t mod_blst_aggregate_verify(mp_obj_t pks_obj, mp_obj_t msgs_obj, mp_obj_t agg_sig_obj) {
+static mp_obj_t mod_blst_aggregate_verify(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args) {
+
+	static const mp_arg_t allowed_args[] = {
+        { MP_QSTR_pks, MP_ARG_REQUIRED | MP_ARG_OBJ, {.u_rom_obj =  mp_const_none} },
+        { MP_QSTR_msgs, MP_ARG_REQUIRED | MP_ARG_OBJ, {.u_rom_obj = mp_const_none} },
+        { MP_QSTR_agg_sig, MP_ARG_REQUIRED | MP_ARG_OBJ, {.u_rom_obj = mp_const_none} },
+        { MP_QSTR_scheme, MP_ARG_INT | MP_ARG_INT, {.u_int = AUG_SCH} },
+    };
+
+    mp_arg_val_t args[MP_ARRAY_SIZE(allowed_args)];
+    mp_arg_parse_all(n_args, pos_args, kw_args, MP_ARRAY_SIZE(allowed_args), allowed_args, args);
+
+    mp_obj_t pks_obj = args[0].u_obj;
+    mp_obj_t msgs_obj = args[1].u_obj;
+    mp_obj_t agg_sig_obj = args[2].u_obj;
+
     mp_obj_t* pk_items, *msg_items;
     size_t num_pks, num_msgs;
     mp_obj_get_array(pks_obj, &num_pks, &pk_items);
@@ -419,14 +494,14 @@ static mp_obj_t mod_blst_aggregate_verify(mp_obj_t pks_obj, mp_obj_t msgs_obj, m
     }
 
 
-    int result = bls_aggregate_verify((const uint8_t**)pks, (const uint8_t**)msgs, msg_lens, num_msgs, agg_sig);
+    int result = bls_aggregate_verify((const uint8_t**)pks, (const uint8_t**)msgs, msg_lens, num_msgs, agg_sig, args[3].u_int);
 
     m_del(uint8_t*, pks, num_pks);
     m_del(uint8_t*, msgs, num_msgs);
     m_del(size_t, msg_lens, num_msgs);
     return mp_obj_new_bool(result == 0);
 }
-static MP_DEFINE_CONST_FUN_OBJ_3(mod_blst_aggregate_verify_obj, mod_blst_aggregate_verify);
+static MP_DEFINE_CONST_FUN_OBJ_KW(mod_blst_aggregate_verify_obj, 3, mod_blst_aggregate_verify);
 // Define all attributes of the module.
 // Table entries are key/value pairs of the attribute name (a string)
 // and the MicroPython object reference.
@@ -442,6 +517,9 @@ static const mp_rom_map_elem_t mp_module_blst_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR_verify), MP_ROM_PTR(&mod_blst_verify_obj) },
     { MP_ROM_QSTR(MP_QSTR_aggregate), MP_ROM_PTR(&mod_blst_aggregate_obj) },
     { MP_ROM_QSTR(MP_QSTR_aggregate_verify), MP_ROM_PTR(&mod_blst_aggregate_verify_obj) },
+	{ MP_ROM_QSTR(MP_QSTR_BASIC_SCHEME_MPL), MP_ROM_INT(BASIC_SCH) },
+	{ MP_ROM_QSTR(MP_QSTR_AUG_SCHEME_MPL), MP_ROM_INT(AUG_SCH) },
+	{ MP_ROM_QSTR(MP_QSTR_POP_SCHEME_MPL), MP_ROM_INT(POP_SCH) },
 };
 static MP_DEFINE_CONST_DICT(mp_module_blst_globals, mp_module_blst_globals_table);
 
