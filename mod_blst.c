@@ -151,17 +151,17 @@ static mp_obj_t mod_blst_keygen(mp_obj_t seed) {
         IKM_data = seed;
     }
 
-    //Parse secret seed
-    size_t IKM_len;
-    const blst_byte *IKM_seed = (const blst_byte*)mp_obj_str_get_data(IKM_data, &IKM_len);
-    if (strlen((const char*)IKM_seed) < PRIVATE_KEY_SIZE){
+    /* //Parse secret seed */
+    mp_buffer_info_t seed_buf; 
+    mp_get_buffer_raise(IKM_data, &seed_buf, MP_BUFFER_READ); 
+    if (seed_buf.len < PRIVATE_KEY_SIZE){
 
         mp_raise_msg(&mp_type_ValueError, MP_ERROR_TEXT("Seed too small (at least 32 bytes)"));
 
     }
 
 
-    blst_keygen(&pkey, IKM_seed, IKM_len, NULL, 0);
+    blst_keygen(&pkey, (const blst_byte*)seed_buf.buf, seed_buf.len, NULL, 0);
 
     return mp_obj_new_bytes(pkey.b, PRIVATE_KEY_SIZE);
     
@@ -186,16 +186,17 @@ static mp_obj_t mod_blst_derive_master_eip2333(mp_obj_t seed) {
     }
 
     //Parse secret seed
-    size_t IKM_len;
-    const blst_byte *IKM_seed = (const blst_byte*)mp_obj_str_get_data(IKM_data, &IKM_len);
-    if (strlen((const char*)IKM_seed) < PRIVATE_KEY_SIZE){
+    mp_buffer_info_t seed_buf; 
+    mp_get_buffer_raise(IKM_data, &seed_buf, MP_BUFFER_READ); 
+    if (seed_buf.len < PRIVATE_KEY_SIZE){
 
         mp_raise_msg(&mp_type_ValueError, MP_ERROR_TEXT("Seed too small (at least 32 bytes)"));
 
     }
 
 
-    blst_derive_master_eip2333(&pkey, IKM_seed, IKM_len);
+
+    blst_derive_master_eip2333(&pkey, (const blst_byte*)seed_buf.buf, seed_buf.len);
 
     return mp_obj_new_bytes(pkey.b, PRIVATE_KEY_SIZE);
     
@@ -360,14 +361,9 @@ static mp_obj_t mod_blst_aggregate(mp_obj_t sigs_obj) {
 
     blst_p2_affine sig_aff;
     blst_p2_from_bytes(&agg_sig, sigs[0]);
-    /* blst_p2_affine agg_sig_aff; */
-    /* blst_p2_uncompress(&agg_sig_aff, sigs[0]); */
-    /* blst_p2_from_affine(&agg_sig, &agg_sig_aff); */
 
     for (size_t i = 1; i < num_sigs; i++) {
-        /* blst_p2_from_bytes(&sig, sigs[i]); */
         blst_p2_uncompress(&sig_aff, sigs[i]);
-        /* blst_p2_from_affine(&sig, &sig_aff); */
         blst_p2_add_or_double_affine(&agg_sig, &agg_sig, &sig_aff);
     }
 
@@ -380,7 +376,6 @@ static mp_obj_t mod_blst_aggregate(mp_obj_t sigs_obj) {
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(mod_blst_aggregate_obj, mod_blst_aggregate);
 
-// Function: bls.aggregate_verify(pks, msgs, agg_sig)
 static mp_obj_t mod_blst_aggregate_verify(mp_obj_t pks_obj, mp_obj_t msgs_obj, mp_obj_t agg_sig_obj) {
     mp_obj_t* pk_items, *msg_items;
     size_t num_pks, num_msgs;
