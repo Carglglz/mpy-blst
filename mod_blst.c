@@ -204,6 +204,42 @@ static mp_obj_t mod_blst_keygen(mp_obj_t seed) {
 static MP_DEFINE_CONST_FUN_OBJ_1(mod_blst_keygen_obj, mod_blst_keygen);
 
 
+static mp_obj_t mod_blst_keygen_v3(mp_obj_t seed) {
+
+    mp_check_self(mp_obj_is_str_or_bytes(seed));
+
+    // check if IKM is a string/path
+    mp_obj_t IKM_data;
+    blst_scalar sk; 
+
+    if (!(mp_obj_is_type(seed, &mp_type_bytes))) {
+        IKM_data = read_file(seed);
+    } else {
+        IKM_data = seed;
+    }
+
+    /* //Parse secret seed */
+    mp_buffer_info_t seed_buf; 
+    mp_get_buffer_raise(IKM_data, &seed_buf, MP_BUFFER_READ); 
+    if (seed_buf.len < PRIVATE_KEY_SIZE){
+
+        mp_raise_msg(&mp_type_ValueError, MP_ERROR_TEXT("Seed size must be at least 32 bytes"));
+
+    }
+
+
+    blst_keygen_v3(&sk, (const blst_byte*)seed_buf.buf, seed_buf.len, NULL, 0);
+
+    blst_byte sk_serialized[PRIVATE_KEY_SIZE]; 
+    blst_bendian_from_scalar(sk_serialized, &sk);
+    return mp_obj_new_bytes(sk_serialized, PRIVATE_KEY_SIZE);
+    
+
+}
+// Define a Python reference to the function above.
+static MP_DEFINE_CONST_FUN_OBJ_1(mod_blst_keygen_v3_obj, mod_blst_keygen_v3);
+
+
 static mp_obj_t mod_blst_derive_master_eip2333(mp_obj_t seed) {
 
     mp_check_self(mp_obj_is_str_or_bytes(seed));
@@ -288,6 +324,7 @@ static mp_obj_t mod_blst_pubk(mp_obj_t sk_obj) {
     // Serialize to compressed form (48 bytes) 
     blst_byte pk_serialized[PUBLIC_KEY_SIZE]; 
     blst_p1_compress(pk_serialized, &pk); 
+
     return mp_obj_new_bytes(pk_serialized, PUBLIC_KEY_SIZE); }
 
 
@@ -393,8 +430,7 @@ static mp_obj_t mod_blst_verify(size_t n_args, const mp_obj_t *pos_args, mp_map_
 
 static MP_DEFINE_CONST_FUN_OBJ_KW(mod_blst_verify_obj, 3, mod_blst_verify);
 
-// Function: bls.aggregate(sigs)
-static mp_obj_t mod_blst_aggregate(mp_obj_t sigs_obj) {
+static mp_obj_t mod_blst_aggregate_sigs(mp_obj_t sigs_obj) {
     mp_obj_t* sig_items;
     size_t num_sigs;
     mp_obj_get_array(sigs_obj, &num_sigs, &sig_items);
@@ -415,8 +451,6 @@ static mp_obj_t mod_blst_aggregate(mp_obj_t sigs_obj) {
         }
     }
 
-
-
     blst_p2 agg_sig;
 
     blst_p2_affine sig_aff;
@@ -433,6 +467,105 @@ static mp_obj_t mod_blst_aggregate(mp_obj_t sigs_obj) {
     m_del(uint8_t*, sigs, num_sigs);
     m_del(size_t, sig_lens, num_sigs);
     return mp_obj_new_bytes(agg_sig_serialized, SIGNATURE_SIZE);
+}
+/* static MP_DEFINE_CONST_FUN_OBJ_1(mod_blst_aggregate_sigs_obj, mod_blst_aggregate_sigs); */
+
+
+static mp_obj_t mod_blst_aggregate_pks(mp_obj_t pks_obj) {
+    mp_obj_t* pk_items;
+    size_t num_pks;
+    mp_obj_get_array(pks_obj, &num_pks, &pk_items);
+    if (num_pks == 0) {
+
+        mp_raise_msg(&mp_type_ValueError, MP_ERROR_TEXT("No public keys to aggregate"));
+    }
+
+
+    uint8_t** pks = m_new(uint8_t*, num_pks);
+    size_t* pk_lens = m_new(size_t, num_pks);
+    for (size_t i = 0; i < num_pks; i++) {
+        if (get_buffer(pk_items[i], &pks[i], &pk_lens[i]) != 0 || pk_lens[i] != PUBLIC_KEY_SIZE) {
+            m_del(uint8_t*, pks, num_pks);
+            m_del(size_t, pk_lens, num_pks);
+
+            mp_raise_msg(&mp_type_ValueError, MP_ERROR_TEXT("Invalid public key"));
+        }
+    }
+
+
+
+    blst_p1 agg_pk;
+
+    blst_p1_affine pk_aff;
+    blst_p1_from_bytes(&agg_pk, pks[0]);
+
+    for (size_t i = 1; i < num_pks; i++) {
+        blst_p1_uncompress(&pk_aff, pks[i]);
+        blst_p1_add_or_double_affine(&agg_pk, &agg_pk, &pk_aff);
+    }
+
+    blst_byte agg_pk_serialized[PUBLIC_KEY_SIZE]; 
+    blst_p1_compress(agg_pk_serialized, &agg_pk); 
+    m_del(uint8_t*, pks, num_pks);
+    m_del(size_t, pk_lens, num_pks);
+    return mp_obj_new_bytes(agg_pk_serialized, PUBLIC_KEY_SIZE);
+}
+/* static MP_DEFINE_CONST_FUN_OBJ_1(mod_blst_aggregate_pks_obj, mod_blst_aggregate_pks); */
+
+
+
+static mp_obj_t mod_blst_aggregate(mp_obj_t sigs_or_pks_obj) {
+
+    mp_obj_t* items;
+    size_t num;
+    mp_obj_get_array(sigs_or_pks_obj, &num, &items);
+    if (num == 0) {
+
+        mp_raise_msg(&mp_type_ValueError, MP_ERROR_TEXT("Nothing to aggregate"));
+    }
+
+
+    uint8_t** sigs_or_pks = m_new(uint8_t*, num);
+    size_t* lens = m_new(size_t, num);
+    if (get_buffer(items[0], &sigs_or_pks[0], &lens[0]) != 0) {
+            m_del(uint8_t*, sigs_or_pks, num);
+            if (lens[0] == PUBLIC_KEY_SIZE){
+
+                m_del(size_t, lens, num);
+                mp_raise_msg(&mp_type_ValueError, MP_ERROR_TEXT("Invalid public key"));
+        }
+            if (lens[0] == SIGNATURE_SIZE ){
+                
+                m_del(size_t, lens, num);
+
+                mp_raise_msg(&mp_type_ValueError, MP_ERROR_TEXT("Invalid signature"));
+
+        }
+        else{
+
+            m_del(size_t, lens, num);
+            mp_raise_msg(&mp_type_ValueError, MP_ERROR_TEXT("Invalid element"));
+        }
+    }
+
+    m_del(uint8_t*, sigs_or_pks, num);
+
+    if (lens[0] == PUBLIC_KEY_SIZE){
+
+        m_del(size_t, lens, num);
+        return mod_blst_aggregate_pks(sigs_or_pks_obj);
+    }
+    else if (lens[0] == SIGNATURE_SIZE){
+
+        m_del(size_t, lens, num);
+        return mod_blst_aggregate_sigs(sigs_or_pks_obj);
+    } 
+    else{
+
+        m_del(size_t, lens, num);
+        mp_raise_msg(&mp_type_ValueError, MP_ERROR_TEXT("Invalid elements"));
+    }
+
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(mod_blst_aggregate_obj, mod_blst_aggregate);
 
@@ -510,6 +643,7 @@ static MP_DEFINE_CONST_FUN_OBJ_KW(mod_blst_aggregate_verify_obj, 3, mod_blst_agg
 static const mp_rom_map_elem_t mp_module_blst_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR___name__), MP_ROM_QSTR(MP_QSTR_blst) },
     { MP_ROM_QSTR(MP_QSTR_keygen), MP_ROM_PTR(&mod_blst_keygen_obj) },
+    { MP_ROM_QSTR(MP_QSTR_keygen_v3), MP_ROM_PTR(&mod_blst_keygen_v3_obj) },
     { MP_ROM_QSTR(MP_QSTR_keygen_dm_eip2333), MP_ROM_PTR(&mod_blst_derive_master_eip2333_obj) },
     { MP_ROM_QSTR(MP_QSTR_keygen_dc_eip2333), MP_ROM_PTR(&mod_blst_derive_child_eip2333_obj) },
     { MP_ROM_QSTR(MP_QSTR_pubkey), MP_ROM_PTR(&mod_blst_pubk_obj) },
