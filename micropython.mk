@@ -11,7 +11,11 @@ CLFAGS_USERMOD += -I$(BLST_SRC_DIR) -I$(BLST_MOD_DIR)/blst/bindings -D__BLST_POR
 
 CFLAGS_EXTRA += -Wno-unused-function  
 
-SRC_USERMOD_LIB_C += $(addprefix $(BLST_SRC_DIR)/, \
+# SRC_USERMOD_LIB_C += $(addprefix $(BLST_SRC_DIR)/, \
+#                      server.c \
+# 					)
+
+SRC_USERMOD_LIB_C += $(addprefix $(BLST_MOD_DIR)/, \
                      server.c \
 					)
 SRC_USERMOD_LIB_ASM += $(BLST_SRC_ASM_DIR)/assembly.S

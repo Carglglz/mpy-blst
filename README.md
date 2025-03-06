@@ -25,6 +25,11 @@ This is a `USER_C_MODULE` for MicroPython using [blst](https://github.com/supran
 
 `blst.keygen_dc_eip2333(msk, child_index)` --> `csk`: derives a child secret key from master key with index `child_index`
 
+`blst.keygen_v3(seed)` --> `msk`: generates a master secret key 
+
+`blst.derive_child_sk(msk, child_index)` --> `csk`: derives a child secret key from master key with index `child_index`
+
+
 ### Tests
 
 Tested ports:

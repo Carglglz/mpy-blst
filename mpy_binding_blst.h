@@ -481,6 +481,9 @@ extern const blst_p2_affine BLS12_381_NEG_G2;
 
 #include "blst/bindings/blst_aux.h"
 
+void blst_derive_child_sk_v3(blst_scalar *out_SK, const blst_scalar *SK,
+                               uint32_t child_index);
+
 #ifdef __cplusplus
 }
 #elif defined(__blst_h_bool__)

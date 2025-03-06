@@ -162,6 +162,8 @@ static int bls_aggregate_verify(const uint8_t** pks_in, const uint8_t** msgs, co
     gc_free(pairing);
     return result;
 }
+
+
 /* https://datatracker.ietf.org/doc/html/draft-irtf-cfrg-bls-signature#section-2.3 */
 /* The KeyGen procedure described in this section generates a secret key PRIVATE_KEY deterministically from a secret octet string IKM. PRIVATE_KEY is guaranteed to be nonzero, as required by KeyValidate (Section 2.5).¶ */
 
@@ -302,6 +304,37 @@ static mp_obj_t mod_blst_derive_child_eip2333(mp_obj_t parent_sk, mp_obj_t child
 // Define a Python reference to the function above.
 static MP_DEFINE_CONST_FUN_OBJ_2(mod_blst_derive_child_eip2333_obj, mod_blst_derive_child_eip2333);
 
+
+static mp_obj_t mod_blst_derive_child_sk_v3(mp_obj_t parent_sk, mp_obj_t child_index) {
+
+    mp_check_self(mp_obj_is_int(child_index));
+    mp_check_self(mp_obj_is_str_or_bytes(parent_sk));
+
+    mp_buffer_info_t sk_buf; 
+    mp_get_buffer_raise(parent_sk, &sk_buf, MP_BUFFER_READ); 
+     // Validate secret key length (must be 32 bytes) 
+    if (sk_buf.len != PRIVATE_KEY_SIZE) { 
+
+        mp_raise_msg(&mp_type_ValueError, MP_ERROR_TEXT("Parent key must be 32 bytes"));
+    }
+    // Deserialize secret key from bytes 
+    blst_scalar psk; 
+    memcpy(psk.b, sk_buf.buf, PRIVATE_KEY_SIZE); 
+
+    blst_scalar ckey; 
+    int ci = mp_obj_get_int(child_index);
+    blst_derive_child_sk_v3(&ckey, &psk, (unsigned) ci);
+
+    blst_byte sk_serialized[PRIVATE_KEY_SIZE]; 
+    blst_bendian_from_scalar(sk_serialized, &ckey);
+
+
+    return mp_obj_new_bytes(sk_serialized, PRIVATE_KEY_SIZE);
+    
+
+}
+// Define a Python reference to the function above.
+static MP_DEFINE_CONST_FUN_OBJ_2(mod_blst_derive_child_sk_v3_obj, mod_blst_derive_child_sk_v3);
 
 
 
@@ -644,6 +677,7 @@ static const mp_rom_map_elem_t mp_module_blst_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR___name__), MP_ROM_QSTR(MP_QSTR_blst) },
     { MP_ROM_QSTR(MP_QSTR_keygen), MP_ROM_PTR(&mod_blst_keygen_obj) },
     { MP_ROM_QSTR(MP_QSTR_keygen_v3), MP_ROM_PTR(&mod_blst_keygen_v3_obj) },
+    { MP_ROM_QSTR(MP_QSTR_derive_child_sk), MP_ROM_PTR(&mod_blst_derive_child_sk_v3_obj) },
     { MP_ROM_QSTR(MP_QSTR_keygen_dm_eip2333), MP_ROM_PTR(&mod_blst_derive_master_eip2333_obj) },
     { MP_ROM_QSTR(MP_QSTR_keygen_dc_eip2333), MP_ROM_PTR(&mod_blst_derive_child_eip2333_obj) },
     { MP_ROM_QSTR(MP_QSTR_pubkey), MP_ROM_PTR(&mod_blst_pubk_obj) },
